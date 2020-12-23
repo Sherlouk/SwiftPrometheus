@@ -1,3 +1,4 @@
+import Foundation
 import NIO
 
 /// Different types of metrics supported by SwiftPrometheus
@@ -68,4 +69,22 @@ internal protocol PrometheusHandled {
 public protocol MetricLabels: Encodable, Hashable {
     /// Create empty labels
     init()
+}
+
+internal struct TimedNumValue<NumType> {
+    let value: NumType
+    let timestamp: Date?
+    
+    /// Returns `timestamp` in milliseconds since epoch - the format required by the Prometheus syntax.
+    var formattedTimestamp: Int? {
+        timestamp.flatMap { Int($0.timeIntervalSince1970 * 1000) }
+    }
+    
+    var timestampAsString: String {
+        if let timestamp = formattedTimestamp {
+            return " \(timestamp)"
+        }
+        
+        return ""
+    }
 }

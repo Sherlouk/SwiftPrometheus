@@ -1,3 +1,4 @@
+import Foundation
 import NIOConcurrencyHelpers
 
 /// Prometheus Counter metric
@@ -22,7 +23,7 @@ public class PromCounter<NumType: Numeric, Labels: MetricLabels>: PromMetric, Pr
     private let initialValue: NumType
     
     /// Storage of values that have labels attached
-    internal var metrics: [Labels: NumType] = [:]
+    internal var metrics: [Labels: TimedNumValue<NumType>] = [:]
     
     /// Lock used for thread safety
     internal let lock: Lock
@@ -58,9 +59,9 @@ public class PromCounter<NumType: Numeric, Labels: MetricLabels>: PromMetric, Pr
             
             output.append("\(self.name) \(self.value)")
             
-            self.metrics.forEach { (labels, value) in
+            self.metrics.forEach { (labels, metric) in
                 let labelsString = encodeLabels(labels)
-                output.append("\(self.name)\(labelsString) \(value)")
+                output.append("\(self.name)\(labelsString) \(metric.value)\(metric.timestampAsString)")
             }
             
             return output.joined(separator: "\n")
@@ -74,12 +75,13 @@ public class PromCounter<NumType: Numeric, Labels: MetricLabels>: PromMetric, Pr
     ///     - labels: Labels to attach to the value
     ///
     @discardableResult
-    public func inc(_ amount: NumType = 1, _ labels: Labels? = nil) -> NumType {
+    public func inc(_ amount: NumType = 1, _ labels: Labels? = nil, timestamp: Date? = nil) -> NumType {
         return self.lock.withLock {
             if let labels = labels {
-                var val = self.metrics[labels] ?? self.initialValue
+                let current = self.metrics[labels]
+                var val = current?.value ?? self.initialValue
                 val += amount
-                self.metrics[labels] = val
+                self.metrics[labels] = .init(value: val, timestamp: timestamp ?? current?.timestamp)
                 return val
             } else {
                 self.value += amount
@@ -97,7 +99,7 @@ public class PromCounter<NumType: Numeric, Labels: MetricLabels>: PromMetric, Pr
     public func get(_ labels: Labels? = nil) -> NumType {
         return self.lock.withLock {
             if let labels = labels {
-                return self.metrics[labels] ?? initialValue
+                return self.metrics[labels]?.value ?? initialValue
             } else {
                 return self.value
             }

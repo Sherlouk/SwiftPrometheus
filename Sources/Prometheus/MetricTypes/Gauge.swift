@@ -24,7 +24,7 @@ public class PromGauge<NumType: DoubleRepresentable, Labels: MetricLabels>: Prom
     private let initialValue: NumType
     
     /// Storage of values that have labels attached
-    private var metrics: [Labels: NumType] = [:]
+    private var metrics: [Labels: TimedNumValue<NumType>] = [:]
     
     /// Lock used for thread safety
     private let lock: Lock
@@ -61,9 +61,9 @@ public class PromGauge<NumType: DoubleRepresentable, Labels: MetricLabels>: Prom
             
             output.append("\(self.name) \(self.value)")
             
-            self.metrics.forEach { (labels, value) in
+            self.metrics.forEach { (labels, metric) in
                 let labelsString = encodeLabels(labels)
-                output.append("\(self.name)\(labelsString) \(value)")
+                output.append("\(self.name)\(labelsString) \(metric.value)\(metric.timestampAsString)")
             }
             
             return output.joined(separator: "\n")
@@ -126,10 +126,10 @@ public class PromGauge<NumType: DoubleRepresentable, Labels: MetricLabels>: Prom
     ///
     /// - Returns: The value of the Gauge attached to the provided labels
     @discardableResult
-    public func set(_ amount: NumType, _ labels: Labels? = nil) -> NumType {
+    public func set(_ amount: NumType, _ labels: Labels? = nil, timestamp: Date? = nil) -> NumType {
         return self.lock.withLock {
             if let labels = labels {
-                self.metrics[labels] = amount
+                self.metrics[labels] = .init(value: amount, timestamp: timestamp)
                 return amount
             } else {
                 self.value = amount
@@ -146,12 +146,13 @@ public class PromGauge<NumType: DoubleRepresentable, Labels: MetricLabels>: Prom
     ///
     /// - Returns: The value of the Gauge attached to the provided labels
     @discardableResult
-    public func inc(_ amount: NumType, _ labels: Labels? = nil) -> NumType {
+    public func inc(_ amount: NumType, _ labels: Labels? = nil, timestamp: Date? = nil) -> NumType {
         return self.lock.withLock {
             if let labels = labels {
-                var val = self.metrics[labels] ?? self.initialValue
+                let current = self.metrics[labels]
+                var val = current?.value ?? self.initialValue
                 val += amount
-                self.metrics[labels] = val
+                self.metrics[labels] = .init(value: val, timestamp: timestamp ?? current?.timestamp)
                 return val
             } else {
                 self.value += amount
@@ -179,12 +180,13 @@ public class PromGauge<NumType: DoubleRepresentable, Labels: MetricLabels>: Prom
     ///
     /// - Returns: The value of the Gauge attached to the provided labels
     @discardableResult
-    public func dec(_ amount: NumType, _ labels: Labels? = nil) -> NumType {
+    public func dec(_ amount: NumType, _ labels: Labels? = nil, timestamp: Date? = nil) -> NumType {
         return self.lock.withLock {
             if let labels = labels {
-                var val = self.metrics[labels] ?? self.initialValue
+                let current = self.metrics[labels]
+                var val = current?.value ?? self.initialValue
                 val -= amount
-                self.metrics[labels] = val
+                self.metrics[labels] = .init(value: val, timestamp: timestamp ?? current?.timestamp)
                 return val
             } else {
                 self.value -= amount
@@ -213,7 +215,7 @@ public class PromGauge<NumType: DoubleRepresentable, Labels: MetricLabels>: Prom
     public func get(_ labels: Labels? = nil) -> NumType {
         return self.lock.withLock {
             if let labels = labels {
-                return self.metrics[labels] ?? initialValue
+                return self.metrics[labels]?.value ?? initialValue
             } else {
                 return self.value
             }
